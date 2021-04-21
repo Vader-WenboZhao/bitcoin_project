@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package tutorial;
+
+message Orderbook {
+  string exchange = 1;
+  string symbol = 2;
+  int64 nonce = 3;
+  int64 timestamp = 4;
+
+  message Unit {
+    float price = 1;
+    float amount = 2;
+  }
+
+  message Bids {
+    repeated Unit bidUnits = 1;
+  }
+
+  message Asks {
+    repeated Unit askUnits = 1;
+  }
+
+  Bids bids = 5;
+  Asks asks = 6;
+}
+
+
+
+message TradesInfo {
+
+  message Trade{
+    string exchange = 1;
+    string symbol = 2;
+    int64 timestamp = 3;
+    string datetime = 4;
+    string side = 5;
+    float price = 6;
+    float amount = 7;
+  }
+
+  repeated Trade trades = 1;
+}
