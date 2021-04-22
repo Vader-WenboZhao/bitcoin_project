@@ -6,6 +6,7 @@ import orderbook_pb2
 import collections
 import copy
 import threading
+import time
 
 
 # Django Database
@@ -44,14 +45,13 @@ for row in rows:
 '''
 
 
-# CREATE TABLE orderbook ( exchange VARCHAR(20), symbol VARCHAR(10), nonce BIGINT, timestamp BIGINT, type VARCHAR(3), price DOUBLE, amount DOUBLE);
+# CREATE TABLE orderbook ( exchange VARCHAR(20), symbol VARCHAR(10), timestamp BIGINT, type VARCHAR(3), price DOUBLE, amount DOUBLE);
 # CREATE TABLE trades ( exchange VARCHAR(20), symbol VARCHAR(10), timestamp BIGINT, datetime VARCHAR(30), side VARCHAR(4), price DOUBLE, amount DOUBLE);
 
 class Orderbook(models.Model):
     # exchange = models.TextField(db_column=u'exchange', primary_key=True)
     exchange = models.TextField(db_column=u'exchange')
     symbol = models.TextField(db_column=u'symbol')
-    nonce = models.TextField(db_column=u'nonce')
     timestamp = models.TextField(db_column=u'timestamp')
     type = models.TextField(db_column=u'timestamp') # 'bid' OR 'ask'
     price = models.TextField(db_column=u'price')
@@ -84,17 +84,16 @@ class DatabaseControler(): # class operating on the mysql database
 
                 exchangeName = orderBookTool.exchange # parse info from byte stream
                 symbol = orderBookTool.symbol
-                nonce = orderBookTool.nonce
                 timestamp = orderBookTool.timestamp
 
                 cursor = connection.cursor() # get the cursor
 
                 try:
                     for bid in orderBookTool.bids.bidUnits: # insert bid data to database table
-                        cursor.execute("insert into orderbook values(\'"+exchangeName+"\',\'"+symbol+"\',"+str(nonce)+","+str(timestamp)+",\'bid\',"+str(bid.price)+","+str(bid.amount)+")")
+                        cursor.execute("insert into orderbook values(\'"+exchangeName+"\',\'"+symbol+"\',"+str(timestamp)+",\'bid\',"+str(bid.price)+","+str(bid.amount)+")")
 
                     for ask in orderBookTool.asks.askUnits: # insert ask data to database table
-                        cursor.execute("insert into orderbook values(\'"+exchangeName+"\',\'"+symbol+"\',"+str(nonce)+","+str(timestamp)+",\'ask\',"+str(ask.price)+","+str(ask.amount)+")")
+                        cursor.execute("insert into orderbook values(\'"+exchangeName+"\',\'"+symbol+"\',"+str(timestamp)+",\'ask\',"+str(ask.price)+","+str(ask.amount)+")")
                 except BaseException as e:
                     print("* * * * * * * * * * Error! * * * * * * * * * *\n", e)
                     continue
@@ -130,3 +129,8 @@ class DatabaseControler(): # class operating on the mysql database
 
             else:
                 continue
+
+    def bufferMonitor(self):
+        while True:
+            print("Orderbook Buffer:", str(len(self.orderBookBuffer)), "Trades Buffer:", str(len(self.tradesBuffer)))
+            time.sleep(3)

@@ -5,8 +5,7 @@ package tutorial;
 message Orderbook {
   string exchange = 1;
   string symbol = 2;
-  int64 nonce = 3;
-  int64 timestamp = 4;
+  int64 timestamp = 3;
 
   message Unit {
     float price = 1;
@@ -21,8 +20,8 @@ message Orderbook {
     repeated Unit askUnits = 1;
   }
 
-  Bids bids = 5;
-  Asks asks = 6;
+  Bids bids = 4;
+  Asks asks = 5;
 }
 
 

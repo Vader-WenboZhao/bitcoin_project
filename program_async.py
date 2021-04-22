@@ -6,8 +6,19 @@ import asyncio
 import orderbook_pb2
 from Entity import *
 
+latestTradeTimestamp = int(time.time())
 
-exchanges = {1:ccxt.binance()}
+'''
+Exchanges usually impose what is called a rate limit. A request rate limit in milliseconds.
+Specifies the required minimal delay between two consequent HTTP requests to the same exchange.
+The built-in rate-limiter is disabled by default and is turned on by setting the enableRateLimit
+property to true.
+
+aax fetchOrderBook() limit argument must be None, 20, or 50
+bittrex fetchOrderBook() limit argument must be None, 1, 25 or 500, default is 25
+'''
+exchanges = {1:ccxt.binance(), 2:ccxt.aax(), 3:ccxt.bittrex(), 4:ccxt.bytetrade()}
+
 
 
 class GetInfo():
@@ -30,21 +41,26 @@ class GetInfo():
         return self.exchange.fetchTime() # get timestamp from exchange
 
     async def getOrderbookInfo(self): # 异步操作
-        limit = 5
+        # limit = 5
         while True:
-            if time.time() - self.timeCountOrderbook >= 2: # fetch the data once every 2 seconds
+            if time.time() - self.timeCountOrderbook >= 10: # fetch the data once every 2 seconds
                 self.timeCountOrderbook = time.time()
-                orderbook = self.exchange.fetchOrderBook(self.symbol, limit) # fetch data
-                timestamp = self.getTimestamp() # the function fetchOrderBook sometimes cannot obtain timestamp
+                # orderbook = self.exchange.fetchOrderBook(self.symbol, limit) # fetch data
+                orderbook = self.exchange.fetchOrderBook(self.symbol) # fetch data
+                if orderbook['timestamp'] == None: # the function fetchOrderBook sometimes cannot obtain timestamp
+                    timestamp = self.getTimestamp()
+                else:
+                    timestamp = int(orderbook['timestamp'])
                 await self.oderbookCarryFunc(self.exchangeName, self.symbol, orderbook, timestamp, self.databaseControler, self.lockOrderbook)
                 print("Got orderbook data!")
 
     async def getTradesInfo(self): # similar to the above one
-        limit = 5
+        # limit = 5
         while True:
-            if time.time() - self.timeCountTrades >= 2:
+            if time.time() - self.timeCountTrades >= 10:
                 self.timeCountTrades = time.time()
-                trades = self.exchange.fetchTrades(self.symbol, limit=limit)
+                # trades = self.exchange.fetchTrades(self.symbol, limit=limit)
+                trades = self.exchange.fetchTrades(self.symbol, since=latestTradeTimestamp)
                 await self.tradesCarryFunc(self.exchangeName, self.symbol, trades, self.databaseControler, self.lockTrades)
                 print("Got trades data!")
 
@@ -81,6 +97,8 @@ class GetInfo():
 ]
 """
 async def tradesCarryFunction(exchange, symbol, trades, dbControler, lock):
+    global latestTradeTimestamp
+
     tradesToSave = orderbook_pb2.TradesInfo() # initiate an orderbook_pb2.TradesInfo object
 
     for trade in trades:
@@ -93,6 +111,9 @@ async def tradesCarryFunction(exchange, symbol, trades, dbControler, lock):
         newTrade.side = trade['side']
         newTrade.price = trade['price']
         newTrade.amount = trade['amount']
+
+        if trade['timestamp'] > latestTradeTimestamp: # give this value to 'since'
+            latestTradeTimestamp = trade['timestamp']
 
     byteStream = tradesToSave.SerializeToString() # serialization
 
@@ -115,7 +136,6 @@ async def oderbookCarryFunction(exchange, symbol, orderbook, timestamp, dbContro
 
     orderBookToSave.exchange = exchange
     orderBookToSave.symbol = symbol
-    orderBookToSave.nonce = orderbook['nonce']
     orderBookToSave.timestamp = timestamp
 
     for bid in orderbook['bids']:
@@ -202,4 +222,12 @@ if __name__ == "__main__":
 
     DBCtrlr = DatabaseControler() # object responsible for operating the database
 
-    operateExchange(DBCtrlr, 1, 'BTC/USDT', 10000)
+    operateExchange(DBCtrlr, 1, 'BTC/USDT', 2000)
+
+    operateExchange(DBCtrlr, 2, 'BTC/USDT', 500)
+
+    # operateExchange(DBCtrlr, 3, 'BTC/USDT', 1500)
+
+    operateExchange(DBCtrlr, 4, 'BTC/USDT', 500)
+
+    DBCtrlr.bufferMonitor()
