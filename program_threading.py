@@ -72,8 +72,8 @@ class GetInfo(): # symbol = 'BTC/USDT'
     'cost': 101.33625411,
     'fee': None
     },
+    
     ...
-    {'info': {'a': '696891020', 'p': '55465.93000000', 'q': '0.12246400', 'f': '782107951', 'l': '782107951', 'T': '1618995478431', 'm': False, 'M': True}, 'timestamp': 1618995478431, 'datetime': '2021-04-21T08:57:58.431Z', 'symbol': 'BTC/USDT', 'id': '696891020', 'order': None, 'type': None, 'side': 'buy', 'takerOrMaker': None, 'price': 55465.93, 'amount': 0.122464, 'cost': 6792.57965152, 'fee': None}, {'info': {'a': '696891021', 'p': '55465.93000000', 'q': '0.01442300', 'f': '782107952', 'l': '782107952', 'T': '1618995478695', 'm': False, 'M': True}, 'timestamp': 1618995478695, 'datetime': '2021-04-21T08:57:58.695Z', 'symbol': 'BTC/USDT', 'id': '696891021', 'order': None, 'type': None, 'side': 'buy', 'takerOrMaker': None, 'price': 55465.93, 'amount': 0.014423, 'cost': 799.98510839, 'fee': None}
 ]
 """
 
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     threadBinanceOrderbook = ThreadOrderbook(getBinanceInfo)
     threadBinanceOrderbook.start()
     print("Thread to collect Binance orderbook starts now!")
-    
+
     threadBinanceTrades = ThreadTrades(getBinanceInfo)
     threadBinanceTrades.start()
     print("Thread to collect Binance trades starts now!")

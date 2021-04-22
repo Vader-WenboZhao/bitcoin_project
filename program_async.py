@@ -6,43 +6,47 @@ import asyncio
 import orderbook_pb2
 from Entity import *
 
+
 exchanges = {1:ccxt.binance()}
 
-oderBookBuffer = []
-tradesBuffer = []
 
-DBCtrlr = DatabaseControler()
-
-
-class GetInfo(): # symbol = 'BTC/USDT'
-    def __init__(self, exchangeCode, symbol, rateLimit, oderbookCarryFunc, tradesCarryFunc):
+class GetInfo():
+    def __init__(self, exchangeCode, symbol, rateLimit, oderbookCarryFunc, tradesCarryFunc, dbCtrlr):
         global exchanges
         self.exchange = exchanges[exchangeCode]
-        self.symbol = symbol
+        self.symbol = symbol # 'BTC/USDT'
         self.exchange.rateLimit = rateLimit
-        self.oderbookCarryFunc = oderbookCarryFunc
-        self.tradesCarryFunc = tradesCarryFunc
-        self.exchangeName = self.exchange.name
+        self.oderbookCarryFunc = oderbookCarryFunc # function to transmit orderbook data
+        self.tradesCarryFunc = tradesCarryFunc # function to transmit trades data
+        self.exchangeName = self.exchange.name # the name of exchange
+        self.databaseControler = dbCtrlr # the object controlling a database
+        self.timeCountOrderbook = time.time() # time of the last updating orderbook data
+        self.timeCountTrades = time.time() # time of the last updating trades data
+        self.lockOrderbook = threading.Lock() # lock of databaseControler's orderbook buffer
+        self.lockTrades = threading.Lock() # lock of databaseControler's trades buffer
         # binance = ccxt.binance({'verbose': True, 'rateLimit':10000}) # default rateLimit is 10000
 
     def getTimestamp(self):
-        return self.exchange.fetchTime()
+        return self.exchange.fetchTime() # get timestamp from exchange
 
     async def getOrderbookInfo(self): # 异步操作
         limit = 5
         while True:
-            orderbook = self.exchange.fetchOrderBook(self.symbol, limit)
-            timestamp = self.getTimestamp()
-            # print(orderbook)
-            await self.oderbookCarryFunc(self.exchangeName, self.symbol, orderbook, timestamp)
-            time.sleep(2)
+            if time.time() - self.timeCountOrderbook >= 2: # fetch the data once every 2 seconds
+                self.timeCountOrderbook = time.time()
+                orderbook = self.exchange.fetchOrderBook(self.symbol, limit) # fetch data
+                timestamp = self.getTimestamp() # the function fetchOrderBook sometimes cannot obtain timestamp
+                await self.oderbookCarryFunc(self.exchangeName, self.symbol, orderbook, timestamp, self.databaseControler, self.lockOrderbook)
+                print("Got orderbook data!")
 
-    async def getTradesInfo(self):
+    async def getTradesInfo(self): # similar to the above one
         limit = 5
         while True:
-            trades = self.exchange.fetchTrades(self.symbol, limit=limit)
-            await self.tradesCarryFunc(self.exchangeName, self.symbol, trades)
-            time.sleep(2)
+            if time.time() - self.timeCountTrades >= 2:
+                self.timeCountTrades = time.time()
+                trades = self.exchange.fetchTrades(self.symbol, limit=limit)
+                await self.tradesCarryFunc(self.exchangeName, self.symbol, trades, self.databaseControler, self.lockTrades)
+                print("Got trades data!")
 
 
 """
@@ -72,21 +76,17 @@ class GetInfo(): # symbol = 'BTC/USDT'
     'cost': 101.33625411,
     'fee': None
     },
+
     ...
-    {'info': {'a': '696891020', 'p': '55465.93000000', 'q': '0.12246400', 'f': '782107951', 'l': '782107951', 'T': '1618995478431', 'm': False, 'M': True}, 'timestamp': 1618995478431, 'datetime': '2021-04-21T08:57:58.431Z', 'symbol': 'BTC/USDT', 'id': '696891020', 'order': None, 'type': None, 'side': 'buy', 'takerOrMaker': None, 'price': 55465.93, 'amount': 0.122464, 'cost': 6792.57965152, 'fee': None}, {'info': {'a': '696891021', 'p': '55465.93000000', 'q': '0.01442300', 'f': '782107952', 'l': '782107952', 'T': '1618995478695', 'm': False, 'M': True}, 'timestamp': 1618995478695, 'datetime': '2021-04-21T08:57:58.695Z', 'symbol': 'BTC/USDT', 'id': '696891021', 'order': None, 'type': None, 'side': 'buy', 'takerOrMaker': None, 'price': 55465.93, 'amount': 0.014423, 'cost': 799.98510839, 'fee': None}
 ]
 """
-
-async def tradesCarryFunction(exchange, symbol, trades):
-    global DBCtrlr
-    global tradesBuffer
-
-    tradesToSave = orderbook_pb2.TradesInfo()
+async def tradesCarryFunction(exchange, symbol, trades, dbControler, lock):
+    tradesToSave = orderbook_pb2.TradesInfo() # initiate an orderbook_pb2.TradesInfo object
 
     for trade in trades:
-        newTrade = tradesToSave.trades.add()
+        newTrade = tradesToSave.trades.add() # repeated data type
 
-        newTrade.exchange = exchange
+        newTrade.exchange = exchange # assignment
         newTrade.symbol = symbol
         newTrade.timestamp = trade['timestamp']
         newTrade.datetime = trade['datetime']
@@ -94,9 +94,13 @@ async def tradesCarryFunction(exchange, symbol, trades):
         newTrade.price = trade['price']
         newTrade.amount = trade['amount']
 
-    byteStream = tradesToSave.SerializeToString()
+    byteStream = tradesToSave.SerializeToString() # serialization
 
-    tradesBuffer.append(byteStream)
+    lock.acquire() # thread lock
+    dbControler.tradesBuffer.append(byteStream) # append the serialized data to databaseControler's buffer
+    lock.release()
+
+    print("Add trades to buffer successfully!")
 
     return
 
@@ -106,23 +110,21 @@ async def tradesCarryFunction(exchange, symbol, trades):
 'asks': [ [54793.82, 0.5], [54794.48, 0.000364], [54794.49, 0.1274], [54795.45, 0.5], [54795.46, 1.2], [54796.83, 0.0075], [54797.82, 0.022272], [54799.71, 0.252369], [54799.76, 0.5], [54799.77, 0.003869] ],
 'timestamp': None, 'datetime': None, 'nonce': 10166925112}
 """
-async def oderbookCarryFunction(exchange, symbol, orderbook, timestamp):
-    global DBCtrlr
-    global oderBookBuffer
-
+async def oderbookCarryFunction(exchange, symbol, orderbook, timestamp, dbControler, lock): # similar to the above function
     orderBookToSave = orderbook_pb2.Orderbook()
+
     orderBookToSave.exchange = exchange
     orderBookToSave.symbol = symbol
     orderBookToSave.nonce = orderbook['nonce']
     orderBookToSave.timestamp = timestamp
 
     for bid in orderbook['bids']:
-        # bid is a list with two floats: [54785.31, 0.000365]
+        # bid is a list with two floats [price, amount]: [54785.31, 0.000365]
         newBid = orderBookToSave.bids.bidUnits.add()
         newBid.price = bid[0]
         newBid.amount = bid[1]
     for ask in orderbook['asks']:
-        # ask is a list with two floats: [54793.82, 0.5]
+        # ask is a list with two floats [price, amount]: [54793.82, 0.5]
         newAsk = orderBookToSave.asks.askUnits.add()
         newAsk.price = ask[0]
         newAsk.amount = ask[1]
@@ -130,78 +132,74 @@ async def oderbookCarryFunction(exchange, symbol, orderbook, timestamp):
     # print(orderBookToSave)
     byteStream = orderBookToSave.SerializeToString()
 
-    oderBookBuffer.append(byteStream)
+    lock.acquire()
+    dbControler.orderBookBuffer.append(byteStream)
+    lock.release()
+
+    print("Add orderbook to buffer successfully!")
 
     return
 
 
-class DatabaseOperatorOrderBook(threading.Thread):
-    def __init__(self):
+class DatabaseOperatorOrderBook(threading.Thread): # the thread inserting orderbook data to database
+    def __init__(self, dbControler):
         threading.Thread.__init__(self)
+        self.databaseControler = dbControler
 
     def run(self):
-        global oderBookBuffer
-
-        while True:
-            if len(oderBookBuffer)!=0:
-                byteStream = oderBookBuffer.pop(0)
-                DBCtrlr.insertOrderbookData(byteStream)
-            else:
-                time.sleep(0.05)
-                continue
+        self.databaseControler.insertOrderbookData()
 
 
-class DatabaseOperatorTrades(threading.Thread):
-    def __init__(self):
+class DatabaseOperatorTrades(threading.Thread): # the thread inserting trades data to database
+    def __init__(self, dbControler):
         threading.Thread.__init__(self)
+        self.databaseControler = dbControler
 
     def run(self):
-        global tradesBuffer
-
-        while True:
-            if len(tradesBuffer)!=0:
-                byteStream = tradesBuffer.pop(0)
-                DBCtrlr.insertTradesData(byteStream)
-            else:
-                time.sleep(0.05)
-                continue
+        self.databaseControler.insertTradesData()
 
 
-class ThreadGetTradesInfo(threading.Thread):
+class ThreadGetTradesInfo(threading.Thread): # the thread collecting trades data
     def __init__(self, getInfoObject):
         threading.Thread.__init__(self)
         self.object = getInfoObject
 
     def run(self):
-        loop1 =  asyncio.new_event_loop()
+        print('Thread GetTradesInfo starts')
+        loop1 =  asyncio.new_event_loop() # async
         asyncio.set_event_loop(loop1)
         res = loop1.run_until_complete(asyncio.wait([self.object.getTradesInfo()]))
-        loop1.close()
+        loop1.close() # in fact it will never close
 
-class ThreadGetOrderBookInfo(threading.Thread):
+class ThreadGetOrderBookInfo(threading.Thread): # the thread collecting orderbook data
     def __init__(self, getInfoObject):
         threading.Thread.__init__(self)
         self.object = getInfoObject
 
-    def run(self):
+    def run(self): # similar to the above one
+        print('Thread GetOrderBookInfo starts')
         loop2 =  asyncio.new_event_loop()
         asyncio.set_event_loop(loop2)
         res = loop2.run_until_complete(asyncio.wait([self.object.getOrderbookInfo()]))
         loop2.close()
 
 
-if __name__ == "__main__":
+def operateExchange(dbControler, exchangeNum, symbol, rateLimit): # specific to a certain exchange
+    getBinanceInfo = GetInfo(exchangeNum, symbol, rateLimit, oderbookCarryFunction, tradesCarryFunction, dbControler) # the object to collect orderbook and trades data
 
-    dbOperatorOrderBook = DatabaseOperatorOrderBook()
+    dbOperatorOrderBook = DatabaseOperatorOrderBook(dbControler)
     dbOperatorOrderBook.start()
-
-    dbOperatorTrades = DatabaseOperatorTrades()
+    dbOperatorTrades = DatabaseOperatorTrades(dbControler)
     dbOperatorTrades.start()
-
-    getBinanceInfo = GetInfo(1, 'BTC/USDT', 10000, oderbookCarryFunction, tradesCarryFunction)
-
     threadGetTradesInfo = ThreadGetTradesInfo(getBinanceInfo)
     threadGetTradesInfo.start()
-
     threadGetOrderBookInfo = ThreadGetOrderBookInfo(getBinanceInfo)
     threadGetOrderBookInfo.start()
+
+
+
+if __name__ == "__main__":
+
+    DBCtrlr = DatabaseControler() # object responsible for operating the database
+
+    operateExchange(DBCtrlr, 1, 'BTC/USDT', 10000)
