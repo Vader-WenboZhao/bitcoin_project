@@ -17,7 +17,19 @@ property to true.
 aax fetchOrderBook() limit argument must be None, 20, or 50
 bittrex fetchOrderBook() limit argument must be None, 1, 25 or 500, default is 25
 '''
-exchanges = {1:ccxt.binance(), 2:ccxt.aax(), 3:ccxt.bittrex(), 4:ccxt.bytetrade()}
+
+"""
+rateLimit:
+    1, binance: 2000, OK
+    2, bitfinex: 1500, OK
+    3, kraken: 3000, OK
+    4, bitstamp: 1000, 'BTC/USD', OK
+    5, bittrex: 1500, ******** NO!
+    6, gemini: 1500, 'BTC/USD', OK
+    -----------------------------------------
+    7, coinbase: 400, cannot fetch order book or trades
+"""
+exchanges = {1:ccxt.binance(), 2:ccxt.bitfinex(), 3:ccxt.kraken(), 4:ccxt.bitstamp(), 5:ccxt.bittrex(), 6:ccxt.gemini()}
 
 
 
@@ -48,7 +60,7 @@ class GetInfo():
                 # orderbook = self.exchange.fetchOrderBook(self.symbol, limit) # fetch data
                 orderbook = self.exchange.fetchOrderBook(self.symbol) # fetch data
                 if orderbook['timestamp'] == None: # the function fetchOrderBook sometimes cannot obtain timestamp
-                    timestamp = self.getTimestamp()
+                    timestamp = int(time.time()*1000)
                 else:
                     timestamp = int(orderbook['timestamp'])
                 await self.oderbookCarryFunc(self.exchangeName, self.symbol, orderbook, timestamp, self.databaseControler, self.lockOrderbook)
@@ -224,10 +236,14 @@ if __name__ == "__main__":
 
     operateExchange(DBCtrlr, 1, 'BTC/USDT', 2000)
 
-    operateExchange(DBCtrlr, 2, 'BTC/USDT', 500)
+    operateExchange(DBCtrlr, 2, 'BTC/USDT', 1500)
 
-    # operateExchange(DBCtrlr, 3, 'BTC/USDT', 1500)
+    operateExchange(DBCtrlr, 3, 'BTC/USDT', 3000)
 
-    operateExchange(DBCtrlr, 4, 'BTC/USDT', 500)
+    operateExchange(DBCtrlr, 4, 'BTC/USD', 1000)
+
+    operateExchange(DBCtrlr, 5, 'BTC/USDT', 1500)
+
+    operateExchange(DBCtrlr, 6, 'BTC/USD', 1500)
 
     DBCtrlr.bufferMonitor()
